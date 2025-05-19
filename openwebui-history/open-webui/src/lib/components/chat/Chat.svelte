@@ -113,7 +113,7 @@
 
 	let chatIdUnsubscriber: Unsubscriber | undefined;
 
-	let selectedModels = [''];
+	let selectedModels = ['gpt-4o'];
 	let atSelectedModel: Model | undefined;
 	let selectedModelIds = [];
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
@@ -181,11 +181,11 @@
 	}
 
 	const saveSessionSelectedModels = () => {
-		if (selectedModels.length === 0 || (selectedModels.length === 1 && selectedModels[0] === '')) {
-			return;
-		}
-		sessionStorage.selectedModels = JSON.stringify(selectedModels);
-		console.log('saveSessionSelectedModels', selectedModels, sessionStorage.selectedModels);
+		// 	if (selectedModels.length === 0 || (selectedModels.length === 1 && selectedModels[0] === '')) {
+		// 		return;
+		// 	}
+		// 	sessionStorage.selectedModels = JSON.stringify(selectedModels);
+		// 	console.log('saveSessionSelectedModels', selectedModels, sessionStorage.selectedModels);
 	};
 
 	$: if (selectedModels) {
@@ -987,61 +987,58 @@
 
 	const createMessagePair = async (userPrompt) => {
 		prompt = '';
-		if (selectedModels.length === 0) {
-			toast.error($i18n.t('Model not selected'));
+
+		const modelId = selectedModels[0];
+		const model = $models.filter((m) => m.id === modelId).at(0);
+
+		const messages = createMessagesList(history, history.currentId);
+		const parentMessage = messages.length !== 0 ? messages.at(-1) : null;
+
+		const userMessageId = uuidv4();
+		const responseMessageId = uuidv4();
+
+		const userMessage = {
+			id: userMessageId,
+			parentId: parentMessage ? parentMessage.id : null,
+			childrenIds: [responseMessageId],
+			role: 'user',
+			content: userPrompt ? userPrompt : `[PROMPT] ${userMessageId}`,
+			timestamp: Math.floor(Date.now() / 1000)
+		};
+
+		const responseMessage = {
+			id: responseMessageId,
+			parentId: userMessageId,
+			childrenIds: [],
+			role: 'assistant',
+			content: `[RESPONSE] ${responseMessageId}`,
+			done: true,
+
+			model: modelId,
+			modelName: model.name ?? model.id,
+			modelIdx: 0,
+			timestamp: Math.floor(Date.now() / 1000)
+		};
+
+		if (parentMessage) {
+			parentMessage.childrenIds.push(userMessageId);
+			history.messages[parentMessage.id] = parentMessage;
+		}
+		history.messages[userMessageId] = userMessage;
+		history.messages[responseMessageId] = responseMessage;
+
+		history.currentId = responseMessageId;
+
+		await tick();
+
+		if (autoScroll) {
+			scrollToBottom();
+		}
+
+		if (messages.length === 0) {
+			await initChatHandler(history);
 		} else {
-			const modelId = selectedModels[0];
-			const model = $models.filter((m) => m.id === modelId).at(0);
-
-			const messages = createMessagesList(history, history.currentId);
-			const parentMessage = messages.length !== 0 ? messages.at(-1) : null;
-
-			const userMessageId = uuidv4();
-			const responseMessageId = uuidv4();
-
-			const userMessage = {
-				id: userMessageId,
-				parentId: parentMessage ? parentMessage.id : null,
-				childrenIds: [responseMessageId],
-				role: 'user',
-				content: userPrompt ? userPrompt : `[PROMPT] ${userMessageId}`,
-				timestamp: Math.floor(Date.now() / 1000)
-			};
-
-			const responseMessage = {
-				id: responseMessageId,
-				parentId: userMessageId,
-				childrenIds: [],
-				role: 'assistant',
-				content: `[RESPONSE] ${responseMessageId}`,
-				done: true,
-
-				model: modelId,
-				modelName: model.name ?? model.id,
-				modelIdx: 0,
-				timestamp: Math.floor(Date.now() / 1000)
-			};
-
-			if (parentMessage) {
-				parentMessage.childrenIds.push(userMessageId);
-				history.messages[parentMessage.id] = parentMessage;
-			}
-			history.messages[userMessageId] = userMessage;
-			history.messages[responseMessageId] = responseMessage;
-
-			history.currentId = responseMessageId;
-
-			await tick();
-
-			if (autoScroll) {
-				scrollToBottom();
-			}
-
-			if (messages.length === 0) {
-				await initChatHandler(history);
-			} else {
-				await saveChatHandler($chatId, history);
-			}
+			await saveChatHandler($chatId, history);
 		}
 	};
 
@@ -1260,14 +1257,12 @@
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		const messages = createMessagesList(history, history.currentId);
-		const _selectedModels = selectedModels.map((modelId) =>
-			$models.map((m) => m.id).includes(modelId) ? modelId : ''
-		);
-		console.log(selectedModels, _selectedModels);
-		if (JSON.stringify(selectedModels) !== JSON.stringify(_selectedModels)) {
-			selectedModels = _selectedModels;
-		}
-
+		// const _selectedModels = selectedModels.map((modelId) =>
+		// 	$models.map((m) => m.id).includes(modelId) ? modelId : ''
+		// );
+		// if (JSON.stringify(selectedModels) !== JSON.stringify(_selectedModels)) {
+		// 	selectedModels = _selectedModels;
+		// }
 		if (userPrompt === '' && files.length === 0) {
 			toast.error($i18n.t('Please enter a prompt'));
 			return;
@@ -1275,8 +1270,8 @@
 		if (selectedModels.includes('')) {
 			// toast.error($i18n.t('Model not selected'));
 			// return;
+			selectedModels.push('gpt-o4');
 		}
-
 		if (messages.length != 0 && messages.at(-1).done != true) {
 			// Response not done
 			return;
@@ -1331,7 +1326,6 @@
 		prompt = '';
 
 		// Create user message
-		// 여기가 메시지 추가하는곳
 		let userMessageId = uuidv4();
 		let userMessage = {
 			id: userMessageId,
@@ -1356,8 +1350,6 @@
 		// focus on chat input
 		const chatInput = document.getElementById('chat-input');
 		chatInput?.focus();
-
-		saveSessionSelectedModels();
 
 		await sendPrompt(history, userPrompt, userMessageId, { newChat: true });
 	};
@@ -1433,59 +1425,68 @@
 
 		await Promise.all(
 			selectedModelIds.map(async (modelId, _modelIdx) => {
-				console.log('modelId', modelId);
-				const model = $models.filter((m) => m.id === modelId).at(0);
+				const model = {
+					id: 'gpt-4o',
+					object: 'model',
+					created: 1715367049,
+					owned_by: 'openai',
+					name: 'gpt-4o',
+					openai: {
+						id: 'gpt-4o',
+						object: 'model',
+						created: 1715367049,
+						owned_by: 'system'
+					},
+					urlIdx: 0,
+					actions: [],
+					tags: []
+				};
 
-				if (model) {
-					const messages = createMessagesList(_history, parentId);
-					// If there are image files, check if model is vision capable
-					const hasImages = messages.some((message) =>
-						message.files?.some((file) => file.type === 'image')
+				const messages = createMessagesList(_history, parentId);
+				// If there are image files, check if model is vision capable
+				const hasImages = messages.some((message) =>
+					message.files?.some((file) => file.type === 'image')
+				);
+
+				if (hasImages && !(model.info?.meta?.capabilities?.vision ?? true)) {
+					toast.error(
+						$i18n.t('Model {{modelName}} is not vision capable', {
+							modelName: model.name ?? model.id
+						})
 					);
+				}
 
-					if (hasImages && !(model.info?.meta?.capabilities?.vision ?? true)) {
-						toast.error(
-							$i18n.t('Model {{modelName}} is not vision capable', {
-								modelName: model.name ?? model.id
-							})
-						);
-					}
+				let responseMessageId = responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`];
+				let responseMessage = _history.messages[responseMessageId];
 
-					let responseMessageId =
-						responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`];
-					let responseMessage = _history.messages[responseMessageId];
-
-					let userContext = null;
-					if ($settings?.memory ?? false) {
-						if (userContext === null) {
-							const res = await queryMemory(localStorage.token, prompt).catch((error) => {
-								toast.error(`${error}`);
-								return null;
-							});
-							if (res) {
-								if (res.documents[0].length > 0) {
-									userContext = res.documents[0].reduce((acc, doc, index) => {
-										const createdAtTimestamp = res.metadatas[0][index].created_at;
-										const createdAtDate = new Date(createdAtTimestamp * 1000)
-											.toISOString()
-											.split('T')[0];
-										return `${acc}${index + 1}. [${createdAtDate}]. ${doc}\n`;
-									}, '');
-								}
+				let userContext = null;
+				if ($settings?.memory ?? false) {
+					if (userContext === null) {
+						const res = await queryMemory(localStorage.token, prompt).catch((error) => {
+							toast.error(`${error}`);
+							return null;
+						});
+						if (res) {
+							if (res.documents[0].length > 0) {
+								userContext = res.documents[0].reduce((acc, doc, index) => {
+									const createdAtTimestamp = res.metadatas[0][index].created_at;
+									const createdAtDate = new Date(createdAtTimestamp * 1000)
+										.toISOString()
+										.split('T')[0];
+									return `${acc}${index + 1}. [${createdAtDate}]. ${doc}\n`;
+								}, '');
 							}
 						}
 					}
-					responseMessage.userContext = userContext;
-
-					const chatEventEmitter = await getChatEventEmitter(model.id, _chatId);
-
-					scrollToBottom();
-					await sendPromptSocket(_history, model, responseMessageId, _chatId);
-
-					if (chatEventEmitter) clearInterval(chatEventEmitter);
-				} else {
-					toast.error($i18n.t(`Model {{modelId}} not found`, { modelId }));
 				}
+				responseMessage.userContext = userContext;
+
+				const chatEventEmitter = await getChatEventEmitter(model.id, _chatId);
+
+				scrollToBottom();
+				await sendPromptSocket(_history, model, responseMessageId, _chatId);
+
+				if (chatEventEmitter) clearInterval(chatEventEmitter);
 			})
 		);
 
@@ -1494,6 +1495,7 @@
 	};
 
 	const sendPromptSocket = async (_history, model, responseMessageId, _chatId) => {
+		console.log('@@@@@@sendPromptSocket : ', model);
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
 
@@ -1911,6 +1913,7 @@
 	};
 
 	const saveChatHandler = async (_chatId, history) => {
+		console.log('@@@@@ 4 saveChatHandler : ');
 		if ($chatId == _chatId) {
 			if (!$temporaryChatEnabled) {
 				chat = await updateChatById(localStorage.token, _chatId, {
